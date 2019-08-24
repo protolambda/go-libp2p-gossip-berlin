@@ -15,4 +15,5 @@ require (
 	github.com/libp2p/go-tcp-transport v0.1.0
 	github.com/libp2p/go-ws-transport v0.1.0
 	github.com/multiformats/go-multiaddr v0.0.4
+	github.com/pkg/profile v1.3.0
 )

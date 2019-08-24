@@ -18,6 +18,8 @@ import (
 
 type SimHost struct {
 	host.Host
+	sentCount uint64
+	receivedCount uint64
 	ps     *pubsub.PubSub
 	ctx    context.Context
 	logger Logger
@@ -56,6 +58,7 @@ func (s *SimHost) pubsubHandler(sub *pubsub.Subscription) {
 			s.logger.Printf("pubsub read err: %v", err)
 			continue
 		}
+		s.receivedCount++
 
 		s.logger.Printf("received msg (%s): %x", msg.TopicIDs, msg.Data)
 		// TODO act on msg ?
@@ -91,6 +94,8 @@ func (s *SimHost) ActRandom(seed int64) {
 		if err := s.ps.Publish(topic, msgData); err != nil {
 			s.logger.Printf("publish failed: %v", err)
 		}
+
+		s.sentCount++
 
 		// wait random time before publishing next message
 		time.Sleep(time.Duration(minSleepMs+rng.Intn(1+maxSleepMs-minSleepMs)) * time.Millisecond)
@@ -198,6 +203,14 @@ func (ex *Experiment) ActRandomlyAll(seed int64) {
 		seed++
 		ex.logger.Printf("started random acting for %v", h.ID())
 	}
+}
+
+func (ex *Experiment) Stats() (sentCount uint64, receivedCount uint64) {
+	for _, h := range ex.hosts {
+		sentCount += h.sentCount
+		receivedCount += h.receivedCount
+	}
+	return
 }
 
 func CreateExperiment(logger *DebugLogger, opts []libp2p.Option, seed int64, hostCount int, degree int) *Experiment {
