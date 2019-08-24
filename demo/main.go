@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
@@ -25,10 +26,11 @@ type SimHost struct {
 	host.Host
 	ps *pubsub.PubSub
 	ctx context.Context
+	logger *log.Logger
 }
 
-func NewSimHost(ctx context.Context, h host.Host) *SimHost {
-	return &SimHost{Host: h, ctx: ctx}
+func NewSimHost(ctx context.Context, h host.Host, logger *log.Logger) *SimHost {
+	return &SimHost{Host: h, ctx: ctx, logger: logger}
 }
 
 func (s *SimHost) StartPubsub() error {
@@ -45,14 +47,56 @@ func (s *SimHost) SubTopic(topic string) error {
 	if err != nil {
 		return err
 	}
-	go pubsubHandler(s.ctx, sub)
+	go s.pubsubHandler(sub)
 	return nil
+}
+
+func (s *SimHost) pubsubHandler(sub *pubsub.Subscription) {
+	for {
+		ctx, _ := context.WithTimeout(s.ctx, 5 * time.Second)
+		msg, err := sub.Next(ctx)
+		if err != nil {
+			s.logger.Printf("pubsub read err: %v", err)
+			continue
+		}
+
+		s.logger.Printf("received msg (%s): %x", msg.TopicIDs, msg.Data)
+		// TODO act on msg ?
+	}
+}
+
+func (s *SimHost) ActRandom(seed int64) {
+	minSleepMs := 100
+	maxSleepMs := 300
+	minMsgByteLen := 10
+	maxMsgByteLen := 10
+	rng := rand.New(rand.NewSource(seed))
+	msgData := make([]byte, maxMsgByteLen, maxMsgByteLen)
+	for {
+		// get a random topic
+		topics := s.ps.GetTopics()
+		topic := topics[rng.Intn(len(topics))]
+
+		// make a random msg
+		size := minMsgByteLen + rng.Intn(1 + maxMsgByteLen - minMsgByteLen)
+		msgData = msgData[:size]
+		rng.Read(msgData)
+
+		s.logger.Printf("publishing msg (%s): %x", topic, msgData)
+
+		if err := s.ps.Publish(topic, msgData); err != nil {
+			s.logger.Printf("publish failed: %v", err)
+		}
+
+		// wait random time before publishing next message
+		time.Sleep(time.Duration(minSleepMs + rng.Intn(1 + maxSleepMs - minSleepMs)) * time.Millisecond)
+	}
 }
 
 type Experiment struct {
 	ctx context.Context
 	hosts []*SimHost
-	*log.Logger
+	logger *log.Logger
 }
 
 func (ex *Experiment) CreateHosts(count int) error {
@@ -61,7 +105,7 @@ func (ex *Experiment) CreateHosts(count int) error {
 		if err != nil {
 			return err
 		}
-		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h))
+		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h, log.New(ex.logger.Writer(), ex.logger.Prefix() + " > " + h.ID().Pretty() + " > ", log.Lmicroseconds)))
 	}
 	return nil
 }
@@ -88,22 +132,29 @@ func (ex *Experiment) RandomPeering(seed int64, degree int) error {
 	if degree < 1 {
 		return fmt.Errorf("invalid degree %d", degree)
 	}
-	if len(ex.hosts) < degree {
+	if len(ex.hosts) <= degree {
 		return fmt.Errorf("not enough hosts to peer them with degree %d", degree)
 	}
 	for i, hostA := range ex.hosts {
 		// Increase the peer count to the degree.
-		for j := len(hostA.Network().Conns()); j < degree; j++ {
+		for j := len(hostA.Network().Conns()); j < degree; {
 			// pick a random *other* node to peer with.
 			offset := rng.Intn(len(ex.hosts) - 2) + 1
 			hostB := ex.hosts[(i + offset) % len(ex.hosts)]
+
+			// If hostB is already connected, don't connect a second time.
+			if len(hostA.Network().ConnsToPeer(hostB.ID())) != 0 {
+				continue
+			}
+
 			// TODO: could support multiple protocols in peers, and peer based on support
 			//addressesB := hostB.Addrs()
 			//protocolsB := addressesB[0].Protocols()
 			if err := hostA.Connect(ex.ctx, peer.AddrInfo{ID: hostB.ID(), Addrs: hostB.Addrs()}); err != nil {
 				return err
 			}
-			ex.Logger.Println("Connected ", hostA.ID(), "to", hostB.ID())
+			ex.logger.Println("Connected ", hostA.ID(), "to", hostB.ID())
+			j++
 		}
 	}
 	return nil
@@ -114,7 +165,7 @@ func (ex *Experiment) StartPubsubAll() error {
 		if err := h.StartPubsub(); err != nil {
 			return err
 		}
-		ex.Logger.Printf("started pubsub for %v", h.ID())
+		ex.logger.Printf("started pubsub for %v", h.ID())
 	}
 	return nil
 }
@@ -126,9 +177,18 @@ func (ex *Experiment) SubRandomly(seed int64, topic string, chance float64) erro
 			if err := h.SubTopic(topic); err != nil {
 				return err
 			} else {
-				ex.Logger.Printf("subbed %v to %v", h.ID(), topic)
+				ex.logger.Printf("subbed %v to %v", h.ID(), topic)
 			}
 		}
+	}
+	return nil
+}
+
+func (ex *Experiment) ActRandomlyAll(seed int64) error {
+	for _, h := range ex.hosts {
+		go h.ActRandom(seed)
+		seed++
+		ex.logger.Printf("started random acting for %v", h.ID())
 	}
 	return nil
 }
@@ -136,7 +196,7 @@ func (ex *Experiment) SubRandomly(seed int64, topic string, chance float64) erro
 func main() {
 	ctx, cancelAll := context.WithCancel(context.Background())
 
-	ex := Experiment{ctx: ctx, Logger: log.New(os.Stdout, "experiment", log.LstdFlags)}
+	ex := Experiment{ctx: ctx, logger: log.New(os.Stdout, "experiment", log.LstdFlags)}
 
 	hostCount := 10
 	if err := ex.CreateHosts(hostCount); err != nil {
@@ -161,6 +221,10 @@ func main() {
 			panic(err)
 		}
 		seed++
+	}
+
+	if err := ex.ActRandomlyAll(123); err != nil {
+		panic(err)
 	}
 
 	stop := make(chan os.Signal, 1)
