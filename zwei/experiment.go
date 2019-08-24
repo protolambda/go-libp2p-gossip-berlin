@@ -16,11 +16,10 @@ import (
 	//"github.com/multiformats/go-multiaddr"
 )
 
-
 type SimHost struct {
 	host.Host
-	ps *pubsub.PubSub
-	ctx context.Context
+	ps     *pubsub.PubSub
+	ctx    context.Context
 	logger Logger
 }
 
@@ -51,7 +50,7 @@ func (s *SimHost) SubTopic(topic string) error {
 
 func (s *SimHost) pubsubHandler(sub *pubsub.Subscription) {
 	for {
-		ctx, _ := context.WithTimeout(s.ctx, 5 * time.Second)
+		ctx, _ := context.WithTimeout(s.ctx, 5*time.Second)
 		msg, err := sub.Next(ctx)
 		if err != nil {
 			s.logger.Printf("pubsub read err: %v", err)
@@ -83,7 +82,7 @@ func (s *SimHost) ActRandom(seed int64) {
 		topic := topics[rng.Intn(len(topics))]
 
 		// make a random msg
-		size := minMsgByteLen + rng.Intn(1 + maxMsgByteLen - minMsgByteLen)
+		size := minMsgByteLen + rng.Intn(1+maxMsgByteLen-minMsgByteLen)
 		msgData = msgData[:size]
 		rng.Read(msgData)
 
@@ -94,15 +93,15 @@ func (s *SimHost) ActRandom(seed int64) {
 		}
 
 		// wait random time before publishing next message
-		time.Sleep(time.Duration(minSleepMs + rng.Intn(1 + maxSleepMs - minSleepMs)) * time.Millisecond)
+		time.Sleep(time.Duration(minSleepMs+rng.Intn(1+maxSleepMs-minSleepMs)) * time.Millisecond)
 	}
 }
 
 type Experiment struct {
-	ctx context.Context
-	stop func()
-	opts []libp2p.Option
-	hosts []*SimHost
+	ctx    context.Context
+	stop   func()
+	opts   []libp2p.Option
+	hosts  []*SimHost
 	logger Logger
 }
 
@@ -116,7 +115,7 @@ func (ex *Experiment) CreateHosts(count int) error {
 		if err != nil {
 			return err
 		}
-		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h, ex.logger.SubLogger("from: " + h.ID().Pretty())))
+		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h, ex.logger.SubLogger("from: "+h.ID().Pretty())))
 	}
 	return nil
 }
@@ -148,8 +147,8 @@ func (ex *Experiment) RandomPeering(seed int64, degree int) error {
 		// Increase the peer count to the degree.
 		for j := len(hostA.Network().Conns()); j < degree; {
 			// pick a random *other* node to peer with.
-			offset := rng.Intn(len(ex.hosts) - 2) + 1
-			hostB := ex.hosts[(i + offset) % len(ex.hosts)]
+			offset := rng.Intn(len(ex.hosts)-2) + 1
+			hostB := ex.hosts[(i+offset)%len(ex.hosts)]
 
 			// If hostB is already connected, don't connect a second time.
 			if len(hostA.Network().ConnsToPeer(hostB.ID())) != 0 {
@@ -201,7 +200,6 @@ func (ex *Experiment) ActRandomlyAll(seed int64) {
 	}
 }
 
-
 func CreateExperiment(logger *DebugLogger, opts []libp2p.Option, seed int64, hostCount int, degree int) *Experiment {
 	ctx, stop := context.WithCancel(context.Background())
 
@@ -220,8 +218,8 @@ func CreateExperiment(logger *DebugLogger, opts []libp2p.Option, seed int64, hos
 	}
 	// TODO: experiment with 100% all subscriptions.
 	topics := map[string]float64{
-		"/libp2p/example/berlin/protolambda/foo": 0.7,
-		"/libp2p/example/berlin/protolambda/bar": 0.4,
+		"/libp2p/example/berlin/protolambda/foo":  0.7,
+		"/libp2p/example/berlin/protolambda/bar":  0.4,
 		"/libp2p/example/berlin/protolambda/quix": 0.8,
 	}
 	for topic, chance := range topics {

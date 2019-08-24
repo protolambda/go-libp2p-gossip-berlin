@@ -23,7 +23,7 @@ func main() {
 		libp2p.Security(secio.ID, secio.New),
 	}
 	logger := zwei.NewDebugLogger(log.New(os.Stdout, "experiment: ", log.Lmicroseconds))
-	ex := zwei.CreateExperiment(logger, defaultOps,123, 100, 10)
+	ex := zwei.CreateExperiment(logger, defaultOps, 123, 100, 10)
 	ex.Start()
 
 	stop := make(chan os.Signal, 1)

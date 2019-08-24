@@ -19,7 +19,7 @@ func NewDebugLogger(l *log.Logger) *DebugLogger {
 
 func (dl *DebugLogger) Printf(format string, values ...interface{}) {
 	if dl.logger != nil {
-		dl.logger.Printf(dl.prefix + ": " + format, values...)
+		dl.logger.Printf(dl.prefix+": "+format, values...)
 	}
 	// no-op if nil, for ignoring it during benchmarking.
 }
@@ -29,7 +29,7 @@ func (dl *DebugLogger) SubLogger(prefix string) Logger {
 		return new(DebugLogger)
 	} else {
 		return &DebugLogger{
-			prefix: dl.prefix+prefix,
+			prefix: dl.prefix + prefix,
 			logger: dl.logger,
 		}
 	}
