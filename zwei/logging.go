@@ -2,12 +2,14 @@ package zwei
 
 import "log"
 
+// Simple hackathon logger nesting
 type Logger interface {
 	Printf(format string, values ...interface{})
 	SubLogger(prefix string) Logger
 }
 
 type DebugLogger struct {
+	prefix string
 	logger *log.Logger
 }
 
@@ -17,7 +19,7 @@ func NewDebugLogger(l *log.Logger) *DebugLogger {
 
 func (dl *DebugLogger) Printf(format string, values ...interface{}) {
 	if dl.logger != nil {
-		dl.logger.Printf(format, values...)
+		dl.logger.Printf(dl.prefix + ": " + format, values...)
 	}
 	// no-op if nil, for ignoring it during benchmarking.
 }
@@ -27,7 +29,8 @@ func (dl *DebugLogger) SubLogger(prefix string) Logger {
 		return new(DebugLogger)
 	} else {
 		return &DebugLogger{
-			logger: log.New(dl.logger.Writer(), dl.logger.Prefix()+" > "+prefix, dl.logger.Flags()),
+			prefix: dl.prefix+prefix,
+			logger: dl.logger,
 		}
 	}
 }

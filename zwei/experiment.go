@@ -12,9 +12,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	//mplex "github.com/libp2p/go-libp2p-mplex"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	secio "github.com/libp2p/go-libp2p-secio"
-	yamux "github.com/libp2p/go-libp2p-yamux"
-	"github.com/libp2p/go-tcp-transport"
 	//ws "github.com/libp2p/go-ws-transport"
 	//"github.com/multiformats/go-multiaddr"
 )
@@ -103,6 +100,8 @@ func (s *SimHost) ActRandom(seed int64) {
 
 type Experiment struct {
 	ctx context.Context
+	stop func()
+	opts []libp2p.Option
 	hosts []*SimHost
 	logger Logger
 }
@@ -117,7 +116,7 @@ func (ex *Experiment) CreateHosts(count int) error {
 		if err != nil {
 			return err
 		}
-		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h, ex.logger.SubLogger(" > " + h.ID().Pretty() + " > ")))
+		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h, ex.logger.SubLogger("from: " + h.ID().Pretty())))
 	}
 	return nil
 }
@@ -127,19 +126,13 @@ func (ex *Experiment) selectOpts() (out []libp2p.Option, err error) {
 	if err != nil {
 		return nil, err
 	}
+	out = append(out, ex.opts...)
 	out = append(out,
-		libp2p.Transport(tcp.NewTCPTransport),
-		//libp2p.Transport(ws.New),
-		libp2p.Muxer("/yamux/1.0.0", yamux.DefaultTransport),
-		//libp2p.Muxer("/mplex/6.7.0", mplex.DefaultTransport),
-		libp2p.Security(secio.ID, secio.New),
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(
 			"/ip4/127.0.0.1/tcp/0", // 0: gets a random port assigned on localhost
 		),
 	)
-	// TODO could add more/different options based on input choices?
-	// TODO: or randomize option selection?
 	return
 }
 
@@ -209,11 +202,10 @@ func (ex *Experiment) ActRandomlyAll(seed int64) {
 }
 
 
-func Run(logger *DebugLogger, seed int64, hostCount int, degree int) (start func(), stop func()) {
-	ctx := context.Background()
-	ctx, stop = context.WithCancel(ctx)
+func CreateExperiment(logger *DebugLogger, opts []libp2p.Option, seed int64, hostCount int, degree int) *Experiment {
+	ctx, stop := context.WithCancel(context.Background())
 
-	ex := Experiment{ctx: ctx, logger: logger}
+	ex := &Experiment{ctx: ctx, opts: opts, logger: logger, stop: stop}
 
 	if err := ex.CreateHosts(hostCount); err != nil {
 		panic(err)
@@ -239,8 +231,19 @@ func Run(logger *DebugLogger, seed int64, hostCount int, degree int) (start func
 		seed++
 	}
 
-	start = func() {
-		ex.ActRandomlyAll(123)
+	return ex
+}
+
+func (ex *Experiment) Start() {
+	ex.logger.Printf("starting experiment...")
+	ex.ActRandomlyAll(123)
+}
+
+func (ex *Experiment) Stop() {
+	if ex.stop != nil {
+		ex.logger.Printf("stopping experiment...")
+		ex.stop()
+	} else {
+		ex.logger.Printf("already stopped")
 	}
-	return
 }
