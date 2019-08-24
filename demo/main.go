@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -15,7 +16,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	secio "github.com/libp2p/go-libp2p-secio"
 	yamux "github.com/libp2p/go-libp2p-yamux"
-	tcp "github.com/libp2p/go-tcp-transport"
+	"github.com/libp2p/go-tcp-transport"
 	//ws "github.com/libp2p/go-ws-transport"
 	//"github.com/multiformats/go-multiaddr"
 )
@@ -24,6 +25,10 @@ type SimHost struct {
 	host.Host
 	ps *pubsub.PubSub
 	ctx context.Context
+}
+
+func NewSimHost(ctx context.Context, h host.Host) *SimHost {
+	return &SimHost{Host: h, ctx: ctx}
 }
 
 func (s *SimHost) StartPubsub() error {
@@ -46,7 +51,8 @@ func (s *SimHost) SubTopic(topic string) error {
 
 type Experiment struct {
 	ctx context.Context
-	hosts []SimHost
+	hosts []*SimHost
+	*log.Logger
 }
 
 func (ex *Experiment) CreateHosts(count int) error {
@@ -55,7 +61,7 @@ func (ex *Experiment) CreateHosts(count int) error {
 		if err != nil {
 			return err
 		}
-		ex.hosts = append(ex.hosts, SimHost{Host: h})
+		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h))
 	}
 	return nil
 }
@@ -86,21 +92,18 @@ func (ex *Experiment) RandomPeering(seed int64, degree int) error {
 		return fmt.Errorf("not enough hosts to peer them with degree %d", degree)
 	}
 	for i, hostA := range ex.hosts {
-		for j := 0; j < degree; j++ {
-			// pick a random other node to peer with, if not already peered
-			offset := rng.Intn(len(ex.hosts) - 1)
+		// Increase the peer count to the degree.
+		for j := len(hostA.Network().Conns()); j < degree; j++ {
+			// pick a random *other* node to peer with.
+			offset := rng.Intn(len(ex.hosts) - 2) + 1
 			hostB := ex.hosts[(i + offset) % len(ex.hosts)]
 			// TODO: could support multiple protocols in peers, and peer based on support
 			//addressesB := hostB.Addrs()
 			//protocolsB := addressesB[0].Protocols()
-			targetInfo, err := peer.AddrInfoFromP2pAddr(hostB.Addrs()[0])
-			if err != nil {
+			if err := hostA.Connect(ex.ctx, peer.AddrInfo{ID: hostB.ID(), Addrs: hostB.Addrs()}); err != nil {
 				return err
 			}
-			if err := hostA.Connect(ex.ctx, *targetInfo); err != nil {
-				return err
-			}
-			fmt.Println("Connected ", hostA.ID(), "to", hostB.ID())
+			ex.Logger.Println("Connected ", hostA.ID(), "to", hostB.ID())
 		}
 	}
 	return nil
@@ -111,6 +114,7 @@ func (ex *Experiment) StartPubsubAll() error {
 		if err := h.StartPubsub(); err != nil {
 			return err
 		}
+		ex.Logger.Printf("started pubsub for %v", h.ID())
 	}
 	return nil
 }
@@ -119,8 +123,10 @@ func (ex *Experiment) SubRandomly(seed int64, topic string, chance float64) erro
 	rng := rand.New(rand.NewSource(seed))
 	for _, h := range ex.hosts {
 		if rng.Float64() <= chance {
-			if err := h.StartPubsub(); err != nil {
+			if err := h.SubTopic(topic); err != nil {
 				return err
+			} else {
+				ex.Logger.Printf("subbed %v to %v", h.ID(), topic)
 			}
 		}
 	}
@@ -130,16 +136,20 @@ func (ex *Experiment) SubRandomly(seed int64, topic string, chance float64) erro
 func main() {
 	ctx, cancelAll := context.WithCancel(context.Background())
 
-	ex := Experiment{ctx: ctx}
+	ex := Experiment{ctx: ctx, Logger: log.New(os.Stdout, "experiment", log.LstdFlags)}
 
 	hostCount := 10
 	if err := ex.CreateHosts(hostCount); err != nil {
 		panic(err)
 	}
-	degree := 3
+	degree := 4
 	if err := ex.RandomPeering(1234, degree); err != nil {
 		panic(err)
 	}
+	if err := ex.StartPubsubAll(); err != nil {
+		panic(err)
+	}
+	// TODO: experiment with 100% all subscriptions.
 	topics := map[string]float64{
 		"/libp2p/example/berlin/protolambda/foo": 0.7,
 		"/libp2p/example/berlin/protolambda/bar": 0.4,
