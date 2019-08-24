@@ -1,16 +1,13 @@
-package main
+package zwei
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	//mplex "github.com/libp2p/go-libp2p-mplex"
@@ -22,19 +19,23 @@ import (
 	//"github.com/multiformats/go-multiaddr"
 )
 
+
 type SimHost struct {
 	host.Host
 	ps *pubsub.PubSub
 	ctx context.Context
-	logger *log.Logger
+	logger Logger
 }
 
-func NewSimHost(ctx context.Context, h host.Host, logger *log.Logger) *SimHost {
+func NewSimHost(ctx context.Context, h host.Host, logger Logger) *SimHost {
 	return &SimHost{Host: h, ctx: ctx, logger: logger}
 }
 
 func (s *SimHost) StartPubsub() error {
-	ps, err := pubsub.NewGossipSub(s.ctx, s)
+	optsPS := []pubsub.Option{
+		pubsub.WithMessageSigning(true),
+	}
+	ps, err := pubsub.NewGossipSub(s.ctx, s, optsPS...)
 	if err != nil {
 		return err
 	}
@@ -75,6 +76,13 @@ func (s *SimHost) ActRandom(seed int64) {
 	for {
 		// get a random topic
 		topics := s.ps.GetTopics()
+
+		// if the peer is currently not subbed to any topic, don't publish anything for a while
+		if len(topics) == 0 {
+			time.Sleep(time.Duration(minSleepMs) * time.Millisecond * 10)
+			continue
+		}
+
 		topic := topics[rng.Intn(len(topics))]
 
 		// make a random msg
@@ -96,28 +104,36 @@ func (s *SimHost) ActRandom(seed int64) {
 type Experiment struct {
 	ctx context.Context
 	hosts []*SimHost
-	logger *log.Logger
+	logger Logger
 }
 
 func (ex *Experiment) CreateHosts(count int) error {
 	for i := 0; i < count; i++ {
-		h, err := libp2p.New(ex.ctx, ex.selectOpts()...)
+		opts, err := ex.selectOpts()
 		if err != nil {
 			return err
 		}
-		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h, log.New(ex.logger.Writer(), ex.logger.Prefix() + " > " + h.ID().Pretty() + " > ", log.Lmicroseconds)))
+		h, err := libp2p.New(ex.ctx, opts...)
+		if err != nil {
+			return err
+		}
+		ex.hosts = append(ex.hosts, NewSimHost(ex.ctx, h, ex.logger.SubLogger(" > " + h.ID().Pretty() + " > ")))
 	}
 	return nil
 }
 
-func (ex *Experiment) selectOpts() (out []libp2p.Option) {
+func (ex *Experiment) selectOpts() (out []libp2p.Option, err error) {
+	priv, _, err := crypto.GenerateSecp256k1Key(nil)
+	if err != nil {
+		return nil, err
+	}
 	out = append(out,
 		libp2p.Transport(tcp.NewTCPTransport),
 		//libp2p.Transport(ws.New),
 		libp2p.Muxer("/yamux/1.0.0", yamux.DefaultTransport),
 		//libp2p.Muxer("/mplex/6.7.0", mplex.DefaultTransport),
 		libp2p.Security(secio.ID, secio.New),
-
+		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(
 			"/ip4/127.0.0.1/tcp/0", // 0: gets a random port assigned on localhost
 		),
@@ -153,7 +169,7 @@ func (ex *Experiment) RandomPeering(seed int64, degree int) error {
 			if err := hostA.Connect(ex.ctx, peer.AddrInfo{ID: hostB.ID(), Addrs: hostB.Addrs()}); err != nil {
 				return err
 			}
-			ex.logger.Println("Connected ", hostA.ID(), "to", hostB.ID())
+			ex.logger.Printf("Connected %v to %v", hostA.ID(), hostB.ID())
 			j++
 		}
 	}
@@ -184,29 +200,30 @@ func (ex *Experiment) SubRandomly(seed int64, topic string, chance float64) erro
 	return nil
 }
 
-func (ex *Experiment) ActRandomlyAll(seed int64) error {
+func (ex *Experiment) ActRandomlyAll(seed int64) {
 	for _, h := range ex.hosts {
 		go h.ActRandom(seed)
 		seed++
 		ex.logger.Printf("started random acting for %v", h.ID())
 	}
-	return nil
 }
 
-func main() {
-	ctx, cancelAll := context.WithCancel(context.Background())
 
-	ex := Experiment{ctx: ctx, logger: log.New(os.Stdout, "experiment", log.LstdFlags)}
+func Run(logger *DebugLogger, seed int64, hostCount int, degree int) (start func(), stop func()) {
+	ctx := context.Background()
+	ctx, stop = context.WithCancel(ctx)
 
-	hostCount := 10
+	ex := Experiment{ctx: ctx, logger: logger}
+
 	if err := ex.CreateHosts(hostCount); err != nil {
 		panic(err)
 	}
-	degree := 4
-	if err := ex.RandomPeering(1234, degree); err != nil {
+
+	if err := ex.StartPubsubAll(); err != nil {
 		panic(err)
 	}
-	if err := ex.StartPubsubAll(); err != nil {
+
+	if err := ex.RandomPeering(seed, degree); err != nil {
 		panic(err)
 	}
 	// TODO: experiment with 100% all subscriptions.
@@ -215,7 +232,6 @@ func main() {
 		"/libp2p/example/berlin/protolambda/bar": 0.4,
 		"/libp2p/example/berlin/protolambda/quix": 0.8,
 	}
-	seed := int64(42)
 	for topic, chance := range topics {
 		if err := ex.SubRandomly(seed, topic, chance); err != nil {
 			panic(err)
@@ -223,17 +239,8 @@ func main() {
 		seed++
 	}
 
-	if err := ex.ActRandomlyAll(123); err != nil {
-		panic(err)
+	start = func() {
+		ex.ActRandomlyAll(123)
 	}
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT)
-
-	select {
-	// TODO more program events here, maybe change settings on runtime?
-	case <-stop:
-		cancelAll()
-		os.Exit(0)
-	}
+	return
 }
