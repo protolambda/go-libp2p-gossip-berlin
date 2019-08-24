@@ -31,7 +31,7 @@ func NewSimHost(ctx context.Context, h host.Host, logger Logger) *SimHost {
 
 func (s *SimHost) StartPubsub() error {
 	optsPS := []pubsub.Option{
-		pubsub.WithMessageSigning(true),
+		pubsub.WithMessageSigning(false), // TODO
 	}
 	ps, err := pubsub.NewGossipSub(s.ctx, s, optsPS...)
 	if err != nil {
@@ -68,8 +68,8 @@ func (s *SimHost) pubsubHandler(sub *pubsub.Subscription) {
 func (s *SimHost) ActRandom(seed int64) {
 	minSleepMs := 100
 	maxSleepMs := 300
-	minMsgByteLen := 10
-	maxMsgByteLen := 10
+	minMsgByteLen := 8 << 10
+	maxMsgByteLen := 16 << 10
 	rng := rand.New(rand.NewSource(seed))
 	msgData := make([]byte, maxMsgByteLen, maxMsgByteLen)
 	for {
