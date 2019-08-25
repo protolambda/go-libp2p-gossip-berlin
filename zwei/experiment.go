@@ -18,11 +18,11 @@ import (
 
 type SimHost struct {
 	host.Host
-	sentCount uint64
+	sentCount     uint64
 	receivedCount uint64
-	ps     *pubsub.PubSub
-	ctx    context.Context
-	logger Logger
+	ps            *pubsub.PubSub
+	ctx           context.Context
+	logger        Logger
 }
 
 func NewSimHost(ctx context.Context, h host.Host, logger Logger) *SimHost {
@@ -213,7 +213,9 @@ func (ex *Experiment) Stats() (sentCount uint64, receivedCount uint64) {
 	return
 }
 
-func CreateExperiment(logger *DebugLogger, opts []libp2p.Option, seed int64, hostCount int, degree int) *Experiment {
+func CreateExperiment(logger *DebugLogger, opts []libp2p.Option,
+	topics map[string]float64, seed int64, hostCount int, degree int) *Experiment {
+
 	ctx, stop := context.WithCancel(context.Background())
 
 	ex := &Experiment{ctx: ctx, opts: opts, logger: logger, stop: stop}
@@ -229,12 +231,6 @@ func CreateExperiment(logger *DebugLogger, opts []libp2p.Option, seed int64, hos
 	if err := ex.RandomPeering(seed, degree); err != nil {
 		panic(err)
 	}
-	// TODO: experiment with 100% all subscriptions.
-	topics := map[string]float64{
-		"/libp2p/example/berlin/protolambda/foo":  0.7,
-		"/libp2p/example/berlin/protolambda/bar":  0.4,
-		"/libp2p/example/berlin/protolambda/quix": 0.8,
-	}
 	for topic, chance := range topics {
 		if err := ex.SubRandomly(seed, topic, chance); err != nil {
 			panic(err)
@@ -245,9 +241,9 @@ func CreateExperiment(logger *DebugLogger, opts []libp2p.Option, seed int64, hos
 	return ex
 }
 
-func (ex *Experiment) Start() {
+func (ex *Experiment) Start(seed int64) {
 	ex.logger.Printf("starting experiment...")
-	ex.ActRandomlyAll(123)
+	ex.ActRandomlyAll(seed)
 }
 
 func (ex *Experiment) Stop() {

@@ -18,6 +18,13 @@ import (
 )
 
 func main() {
+	// TODO: experiment with 100% all subscriptions.
+	topics := map[string]float64{
+		"/libp2p/example/berlin/protolambda/foo":  0.7,
+		"/libp2p/example/berlin/protolambda/bar":  0.4,
+		"/libp2p/example/berlin/protolambda/quix": 0.8,
+	}
+
 	defaultOps := []libp2p.Option{
 		libp2p.Transport(tcp.NewTCPTransport),
 		//libp2p.Transport(ws.New),
@@ -32,11 +39,14 @@ func main() {
 	// disables logging for better bench speed
 	logger := zwei.NewDebugLogger(nil)
 
-	ex := zwei.CreateExperiment(logger, defaultOps, 123, 100, 10)
+	hostCount := 100
+	degree := 10
+
+	ex := zwei.CreateExperiment(logger, defaultOps, topics, 123, hostCount, degree)
 
 	// start profiling after creating the experiment
 	prof := profile.Start(profile.CPUProfile, profile.NoShutdownHook)
-	ex.Start()
+	ex.Start(1234)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT)
