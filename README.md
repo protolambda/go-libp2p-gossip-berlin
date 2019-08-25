@@ -1,5 +1,7 @@
 # EthBerlinZwei: Profiling Libp2p Gossipsub, Golang version
 
+Hackathon submission by @protolambda, learning libp2p with a non-networking background.
+
 ## The bounty problem
 
 > Find and fix bottlenecks and performance hotspots in the Go implementation of gossipsub.
@@ -9,7 +11,9 @@ See [this issue on `bounties/EthBerlinZwei`](https://github.com/ethberlinzwei/Bo
 And so there it starts; read up on libp2p knowledge, 
 read the [Gossipsub spec](https://github.com/libp2p/specs/tree/master/pubsub/gossipsub)
 and then trial-and-error throughout the hackathon. I started late however, since I worked on other Eth 2 issues too.
-Thanks to @raulk for getting me up to speed to work on this so fast. 
+Thanks to @raulk for getting me up to speed to work on this so fast.
+
+Note that this is a hack, produced with a "see it work first" mindset, not a research paper. You are welcome to fork and improve the profiling.
 
 ## Approach
 
@@ -97,13 +101,48 @@ libp2p.ListenAddrStrings(
 5. Stop profiling, save results, see log output for profiling output location. 
 6. Stop libp2p tasks and close resources with `Experiment.Close()`
 
+To generate a call-graph:
+```bash
+go tool pprof -web /tmp/profile......../cpu.pprof 
+```
+
 ## Profiling results
 
-// TODO describe results
+Early results settings: Yamux, signed GossipSub, small 10 byte messages: signature verification is the clear bottleneck.
+
+This test run published 31k messages, 1500k were received. A 145 seconds run.
+[Full callgraph SVG](results/pprof_31k_published_1500k_received.svg)
+
+Then, I disabled GossipSub signatures (`pubsub.WithMessageSigning(false)`) to see what was left.
+
+For small messages, it is Yamux triggering secio encryption, which then writes to a socket connection provided by the kernel, which also forms a bottleneck.
+
+This test run published 8k messages, 600k were received. A 20 seconds run.
+[Full callgraph SVG](results/pprof_no_gossipsub_signing_8k_published_600k_received.svg)
+
+Raul then recommended to increase the message size, so repeat this with random 8 - 16 KB messages:
+
+This test run published 5k messages, 200k were received. A 90 seconds run. Note the significantly lower throughput.
+[Full callgraph SVG](results/pprof_no_gossipsub_signing_5k_published_200k_received_8k_to_16k_bytelen_yamux.svg)
+
+For larger messages, SHA-256 calls by Yamux become the bottleneck.
+However, it looks like it is already using the excellent [Sha-256 SIMD library](https://github.com/minio/sha256-simd) for speed,
+so there is not much to gain unless something is being hashed twice and can be cached.
+
+Now try again with Mplex:
+
+This test run published 8k messages, 357k were received. A 33 seconds run. Note the significantly lower throughput.
+[Full callgraph SVG](results/pprof_no_gossipsub_signing_8k_published_375k_received_8k_to_16k_bytelen_mplex.svg)
+
+SHA-256 (and general secio crypto) is still by far the biggest bottleneck.
+
 
 ## Conclusion
 
-// TODO 
+GossipSub itself is primarily limited by the crypto necessary to verify and encrypt the messages,
+and the data-structures used in its implementation do not seem to be worth optimizing at this time.   
+
+There seems to be some interesting difference in mplex vs. yamux to look into at a later moment, if it is not a usage problem from my side.
 
 ## LICENSE
 
