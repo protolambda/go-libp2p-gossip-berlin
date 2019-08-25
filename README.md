@@ -6,10 +6,16 @@
 
 See [this issue on `bounties/EthBerlinZwei`](https://github.com/ethberlinzwei/Bounties/issues/18).
 
+And so there it starts; read up on libp2p knowledge, 
+read the [Gossipsub spec](https://github.com/libp2p/specs/tree/master/pubsub/gossipsub)
+and then trial-and-error throughout the hackathon. I started late however, since I worked on other Eth 2 issues too.
+Thanks to @raulk for getting me up to speed to work on this so fast. 
+
 ## Approach
 
 To profile anything at all, some kind of test-run is necessary.
 One that stresses go-libp2p with a high throughput, with a good amount of peers and topics.
+Then, a PPROF profile can be made of the test-run, and help identify hotspots to optimize.
 
 ### Why not use benchmarking?
 
@@ -27,7 +33,7 @@ The bigger picture found in call-graphs in a non-benchmark setting does not show
 
 ### Profiling settings
 
-Common settings for *hackathon results*:
+Common settings for the produced *hackathon results* (not claiming perfectness, time constraints to for pretty parametrization apply):
 
 ```go
 // total hosts
@@ -81,7 +87,7 @@ libp2p.ListenAddrStrings(
 // to make the results fully reproducible. 
 ```
 
-### Profiling usage
+## Usage
 
 1. Configure `main.go` options: a `zwei.Experiment` is created with these.
   Message length and interval can be changed in the experiment code, if required.
@@ -91,15 +97,15 @@ libp2p.ListenAddrStrings(
 5. Stop profiling, save results, see log output for profiling output location. 
 6. Stop libp2p tasks and close resources with `Experiment.Close()`
 
-### Profiling results
+## Profiling results
 
 // TODO describe results
 
-### Conclusion
+## Conclusion
 
 // TODO 
 
-### LICENSE
+## LICENSE
 
 MIT, see [`LICENSE` file](./LICENSE).
 Some initial code was adapted from the go-libp2p examples repository,
